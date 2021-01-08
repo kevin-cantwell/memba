@@ -1,14 +1,11 @@
 package main
 
 import (
-	"bytes"
-	"flag"
+	"database/sql"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -16,118 +13,88 @@ import (
 )
 
 var (
-	baseDir = func() string {
-		home, err := os.UserHomeDir()
+	db = func() *sql.DB {
+		databaseFile := filepath.Join(os.Getenv("HOME"), ".memba/sqlite.db")
+		mkdir(databaseFile)
+		db, err := sql.Open("sqlite3", databaseFile)
 		if err != nil {
-			panic(err)
+			log.Panicln(databaseFile, err)
 		}
-		dir := filepath.Join(home, ".memba")
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			panic(err)
-		}
-		return dir
-	}()
-
-	editor = func() string {
-		if ed, ok := os.LookupEnv("EDITOR"); !ok {
-			return "vim"
-		} else {
-			return ed
-		}
+		migrate(db)
+		return db
 	}()
 )
 
 func main() {
-	start := time.Now()
-
-	log.SetFlags(log.Lshortfile | log.Ldate | log.Ltime)
-
-	flag.Parse()
-
-	var (
-		buf bytes.Buffer
-	)
-
-	for i, arg := range flag.Args() {
-		if i > 0 {
-			fmt.Fprintln(&buf, arg)
-		}
+	if len(os.Args) < 3 {
+		log.Fatalln("usage: memba [dis|dat] [dis or dat]")
 	}
-
-	stat, _ := os.Stdin.Stat()
-	if (stat.Mode() & os.ModeCharDevice) == 0 {
-		if _, err := io.Copy(&buf, os.Stdin); err != nil {
-			log.Fatalln(err)
-		}
+	switch os.Args[1] {
+	case "dis":
+		membadis(os.Args[2])
+	case "dat":
+		membadat(os.Args[2])
+	default:
+		log.Fatalln("usage: memba [dis|dat] [dis or dat]")
 	}
+}
 
-	// If there's no input, then open an editor and append the contents to the buffer
-	if buf.Len() == 0 {
-		f, err := ioutil.TempFile("", "")
-		if err != nil {
-			log.Fatalln(err)
-		}
-		defer func() {
-			_ = os.Remove(f.Name())
-		}()
+type thing struct {
+	ID    int64
+	Type  string
+	Value string
+	Time  time.Time
+}
 
-		if err := f.Close(); err != nil {
-			log.Fatalln(err)
-		}
-
-		executable, err := exec.LookPath(editor)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		cmd := exec.Command(executable, f.Name())
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		if err := cmd.Run(); err != nil {
-			log.Fatalln(err)
-		}
-
-		bytes, err := ioutil.ReadFile(f.Name())
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		if _, err := buf.Write(bytes); err != nil {
-			log.Fatalln(err)
-		}
+func mkdir(path string) {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		log.Panicln("mkdir", err)
 	}
+}
 
-	if len(flag.Args()) == 0 && buf.Len() == 0 {
-		os.Exit(0)
+func migrate(db *sql.DB) {
+	const q = `
+		CREATE TABLE IF NOT EXISTS things (
+			id integer PRIMARY KEY,
+			type text,
+			value text,
+			time timestamp
+		)
+	`
+	if _, err := db.Exec(q); err != nil {
+		log.Panicln("migrate", err)
 	}
+}
 
-	notesPath := filepath.Join(baseDir, "notes.txt")
-
-	// open the notes file for appending
-	notes, err := os.OpenFile(notesPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, os.ModePerm)
+func membadis(this string) {
+	ct := http.DetectContentType([]byte(this))
+	_, err := db.Exec("INSERT INTO things (type, value, time) VALUES (?, ?, ?)", ct, this, time.Now())
 	if err != nil {
-		log.Fatalln(err)
+		log.Panicln("Exec", err)
 	}
-	defer func() {
-		_ = notes.Close()
-	}()
-
-	fmt.Fprintf(notes, "<%s> %s\n\n", start.Format(time.RFC3339), flag.Arg(0))
-	if _, err := io.Copy(notes, &buf); err != nil {
-		log.Fatalln(err)
-	}
-	fmt.Fprintf(notes, "\n\n")
 }
 
-type memory struct {
-	Start   time.Time
-	End     time.Time
-	Note    string
-	WorkDir string
-	Tags    []string
-}
+func membadat(dats ...string) {
+	args := make([]interface{}, len(dats))
+	likes := "like '%' || ? || '%'"
+	args[0] = dats[0]
+	for i, dat := range dats[1:] {
+		likes += " OR like '%' || ? || '%'"
+		args[i] = dat
+	}
+	rows, err := db.Query("SELECT id, type, value, time FROM things WHERE value "+likes+" ORDER BY id ASC", args...)
+	if err != nil {
+		log.Panicln("Query", err)
+	}
 
-type context struct {
+	for rows.Next() {
+		var t thing
+		if err := rows.Scan(&t.ID, &t.Type, &t.Value, &t.Time); err != nil {
+			log.Panicln("Scan", err)
+		}
+		fmt.Println(string(t.Value))
+	}
+	if err := rows.Err(); err != nil {
+		log.Panicln("Err", err)
+	}
 }

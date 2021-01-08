@@ -10,8 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
-
-	_ "github.com/mattn/go-sqlite3"
+	// _ "github.com/mattn/go-sqlite3"
 )
 
 var (
@@ -124,7 +123,7 @@ func main() {
 		return
 	}
 
-	mdPath := filepath.Join(baseDir, title+".md")
+	mdPath := filepath.Join(baseDir, fmt.Sprintf("%s %s.md", time.Now().Format("2006-01-02"), title))
 
 	// open the notes file for appending
 	mdFile, err := os.OpenFile(mdPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, os.ModePerm)
