@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -19,7 +18,7 @@ var (
 		if err != nil {
 			panic(err)
 		}
-		dir := filepath.Join(home, "Documents", "Obsidian")
+		dir := filepath.Join(home, "Documents", "memba")
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			panic(err)
 		}
@@ -68,64 +67,7 @@ func main() {
 		title = flag.Arg(0)
 	)
 
-	tempFile, err := ioutil.TempFile("", title)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	defer func() {
-		_ = os.Remove(tempFile.Name())
-	}()
-
-	stat, _ := os.Stdin.Stat()
-
-	switch {
-	case (stat.Mode() & os.ModeCharDevice) == 0:
-		if _, err := io.Copy(tempFile, os.Stdin); err != nil {
-			log.Fatalln(err)
-		}
-	case len(flag.Args()) > 1:
-		for _, arg := range flag.Args()[1:] {
-			fmt.Fprintln(tempFile, arg)
-		}
-	default:
-		executable, err := exec.LookPath(editor)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		cmd := exec.Command(executable, tempFile.Name())
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		if err := cmd.Run(); err != nil {
-			log.Fatalln(err)
-		}
-	}
-
-	if err := tempFile.Close(); err != nil {
-		log.Fatalln(err)
-	}
-
-	tempFile, err = os.Open(tempFile.Name())
-	if err != nil {
-		log.Fatalln(err)
-	}
-	defer func() {
-		_ = tempFile.Close()
-	}()
-
-	info, err := tempFile.Stat()
-	if err != nil {
-		log.Fatalln(err)
-	}
-	if info.Size() == 0 {
-		return
-	}
-
 	mdPath := filepath.Join(baseDir, fmt.Sprintf("%s %s.md", time.Now().Format("2006-01-02"), title))
-
-	// open the notes file for appending
 	mdFile, err := os.OpenFile(mdPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, os.ModePerm)
 	if err != nil {
 		log.Fatalln(err)
@@ -134,8 +76,26 @@ func main() {
 		_ = mdFile.Close()
 	}()
 
-	if _, err := io.Copy(mdFile, tempFile); err != nil {
-		log.Fatalln(err)
+	stat, _ := os.Stdin.Stat()
+
+	switch {
+	case (stat.Mode() & os.ModeCharDevice) == 0:
+		if _, err := io.Copy(mdFile, os.Stdin); err != nil {
+			log.Fatalln(err)
+		}
+	case len(flag.Args()) > 1:
+		for _, arg := range flag.Args()[1:] {
+			fmt.Fprintln(mdFile, arg)
+		}
+	default:
+		cmd := exec.Command("open", "-a", "Obsidian")
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			log.Fatalln(err)
+		}
 	}
 
 	fmt.Printf("%q\n", mdPath)
