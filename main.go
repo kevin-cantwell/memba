@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
-	// _ "github.com/mattn/go-sqlite3"
 )
 
 var (
@@ -35,18 +34,6 @@ var (
 )
 
 func main() {
-	// info, err := os.Stat("/Users/kcantwell/Documents/Obsidian/Data Plane.md")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// sysstat, _ := info.Sys().(*syscall.Stat_t)
-
-	// fmt.Printf("Birthtime: %s\n", time.Unix(sysstat.Birthtimespec.Unix()))
-	// fmt.Printf("LastModified: %s\n", info.ModTime())
-	// os.Exit(0)
-
-	// start := time.Now()
-
 	log.SetFlags(log.Lshortfile | log.Ldate | log.Ltime)
 
 	flag.Usage = func() {
@@ -67,15 +54,12 @@ func main() {
 		title = flag.Arg(0)
 	)
 
-	mdPath := filepath.Join(baseDir, fmt.Sprintf("%s %s.md", time.Now().Format("2006-01-02"), title))
+	fileName := fmt.Sprintf("%s %s.md", time.Now().Format("2006-01-02 1504"), title)
+	mdPath := filepath.Join(baseDir, fileName)
 	mdFile, err := os.OpenFile(mdPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, os.ModePerm)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	defer func() {
-		_ = mdFile.Close()
-	}()
-
 	stat, _ := os.Stdin.Stat()
 
 	switch {
@@ -87,15 +71,21 @@ func main() {
 		for _, arg := range flag.Args()[1:] {
 			fmt.Fprintln(mdFile, arg)
 		}
-	default:
-		cmd := exec.Command("open", "-a", "Obsidian")
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+	}
 
-		if err := cmd.Run(); err != nil {
-			log.Fatalln(err)
-		}
+	if err := mdFile.Close(); err != nil {
+		log.Fatalln(err)
+	}
+
+	time.Sleep(250 * time.Millisecond)
+
+	cmd := exec.Command("open", fmt.Sprintf("obsidian://open?vault=memba&file=%s", fileName))
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		log.Fatalln(err)
 	}
 
 	fmt.Printf("%q\n", mdPath)
